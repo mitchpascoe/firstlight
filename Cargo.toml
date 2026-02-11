@@ -1,0 +1,17 @@
+[package]
+name = "firstlight"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ratatui = "0.30"
+ratatui-image = "10"
+image = "0.25"
+crossterm = "0.28"
+ureq = "3"
+quick-xml = { version = "0.37", features = ["serialize"] }
+serde = { version = "1", features = ["derive"] }
+plist = "1"
+anyhow = "1"
+chrono = "0.4"
+dirs = "6"
