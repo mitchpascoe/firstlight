@@ -11,7 +11,6 @@ crossterm = "0.28"
 ureq = "3"
 quick-xml = { version = "0.37", features = ["serialize"] }
 serde = { version = "1", features = ["derive"] }
-plist = "1"
 anyhow = "1"
 chrono = "0.4"
 dirs = "6"
