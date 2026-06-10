@@ -1,11 +1,11 @@
+use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use chrono::NaiveDate;
 
-const FEED_URL: &str = "https://esawebb.org/images/feed/";
 const CDN_BASE: &str = "https://cdn.esawebb.org/archives/images";
 
 #[derive(Clone)]
@@ -17,63 +17,64 @@ pub struct EsaImage {
     pub wallpaper_url: String,
 }
 
-#[derive(Deserialize)]
-struct Rss {
-    channel: Channel,
-}
-
-#[derive(Deserialize)]
-struct Channel {
-    #[serde(default)]
-    item: Vec<Item>,
-}
-
-#[derive(Deserialize)]
-struct Item {
-    title: Option<String>,
-    #[serde(rename = "pubDate")]
-    pub_date: Option<String>,
-    enclosure: Option<Enclosure>,
-}
-
-#[derive(Deserialize)]
-struct Enclosure {
-    #[serde(rename = "@url")]
-    url: String,
-}
-
 pub fn fetch_images() -> Result<Vec<EsaImage>> {
-    let xml = ureq::get(FEED_URL)
-        .call()
-        .context("Failed to fetch ESA feed")?
-        .body_mut()
-        .read_to_string()
-        .context("Failed to read feed body")?;
+    let mut all = Vec::new();
+    let mut seen = HashSet::new();
 
-    let rss: Rss = quick_xml::de::from_str(&xml).context("Failed to parse RSS feed")?;
+    for page in 1..=20 {
+        let url = format!("https://esawebb.org/images/page/{page}/");
+        let Ok(mut resp) = ureq::get(&url).call() else { break };
+        let Ok(html) = resp.body_mut().read_to_string() else { break };
 
-    let images = rss
-        .channel
-        .item
-        .into_iter()
-        .filter_map(|item| {
-            let enclosure = item.enclosure?;
-            let filename = enclosure.url.rsplit('/').next()?;
-            let id = filename.strip_suffix(".jpg").unwrap_or(filename).to_string();
-            let title = item.title.unwrap_or_else(|| id.clone());
-            let date = item.pub_date.unwrap_or_default();
+        let images = parse_page(&html);
+        if images.is_empty() {
+            break;
+        }
 
-            Some(EsaImage {
-                preview_url: format!("{CDN_BASE}/thumb700x/{id}.jpg"),
-                wallpaper_url: format!("{CDN_BASE}/large/{id}.jpg"),
-                id,
-                title,
-                date,
-            })
-        })
-        .collect();
+        for img in images {
+            if seen.insert(img.id.clone()) {
+                all.push(img);
+            }
+        }
+    }
 
-    Ok(images)
+    all.sort_by(|a, b| b.date.cmp(&a.date));
+    Ok(all)
+}
+
+fn parse_page(html: &str) -> Vec<EsaImage> {
+    let mut images = Vec::new();
+
+    for chunk in html.split("id: '").skip(1) {
+        let Some(id) = chunk.splitn(2, '\'').next() else { continue };
+        if id.is_empty() || id.contains('\n') {
+            continue;
+        }
+
+        let title = extract_between(chunk, "title: '", "'")
+            .unwrap_or(id)
+            .to_string();
+        let date = extract_between(chunk, "potw: '", "'")
+            .and_then(|s| NaiveDate::parse_from_str(s, "%d %B %Y").ok())
+            .map(|d| d.format("%Y-%m-%d").to_string())
+            .unwrap_or_default();
+
+        images.push(EsaImage {
+            preview_url: format!("{CDN_BASE}/thumb700x/{id}.jpg"),
+            wallpaper_url: format!("{CDN_BASE}/large/{id}.jpg"),
+            id: id.to_string(),
+            title,
+            date,
+        });
+    }
+
+    images
+}
+
+fn extract_between<'a>(text: &'a str, start: &str, end: &str) -> Option<&'a str> {
+    let s = text.find(start)? + start.len();
+    let e = text[s..].find(end)?;
+    Some(&text[s..s + e])
 }
 
 fn cache_dir() -> Result<PathBuf> {

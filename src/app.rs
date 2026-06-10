@@ -177,7 +177,18 @@ impl App {
 
         let items: Vec<ListItem> = indices
             .iter()
-            .map(|&i| ListItem::new(self.images[i].title.as_str()))
+            .map(|&i| {
+                let img = &self.images[i];
+                let date = if img.date.is_empty() {
+                    "          ".to_string()
+                } else {
+                    img.date.clone()
+                };
+                ListItem::new(Line::from(vec![
+                    Span::styled(format!("{date}  "), Style::new().fg(MUTED)),
+                    Span::raw(img.title.clone()),
+                ]))
+            })
             .collect();
 
         let list = List::new(items)
@@ -238,7 +249,7 @@ fn preview_block(date_title: &str) -> Block<'_> {
 }
 
 fn format_date(date_str: &str) -> String {
-    chrono::DateTime::parse_from_rfc2822(date_str)
-        .map(|dt| dt.format("%B %-d, %Y").to_string())
-        .unwrap_or_default()
+    chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
+        .map(|d| d.format("%B %-d, %Y").to_string())
+        .unwrap_or_else(|_| date_str.to_string())
 }
